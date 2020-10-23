@@ -96,20 +96,6 @@ static esp_netif_t* esp_netif_sta = NULL;
 /* @brief netif object for the ACCESS POINT */
 static esp_netif_t* esp_netif_ap = NULL;
 
-/**
- * The actual WiFi settings in use
- */
-struct wifi_settings_t wifi_settings = {
-	.ap_ssid = DEFAULT_AP_SSID,
-	.ap_pwd = DEFAULT_AP_PASSWORD,
-	.ap_channel = DEFAULT_AP_CHANNEL,
-	.ap_ssid_hidden = DEFAULT_AP_SSID_HIDDEN,
-	.ap_bandwidth = DEFAULT_AP_BANDWIDTH,
-	.sta_only = DEFAULT_STA_ONLY,
-	.sta_power_save = DEFAULT_STA_POWER_SAVE,
-	.sta_static_ip = 0,
-};
-
 static EventGroupHandle_t wifi_manager_event_group;
 
 /* @brief indicate that the ESP32 is currently connected. */
@@ -172,11 +158,24 @@ void wifi_manager_disconnect_async(){
 
 void wifi_manager_start(){
 
+	// Configuration for this library
+	wifi_manager_config_t *config = (wifi_manager_config_t*)malloc(sizeof(wifi_manager_config_t));
+	memset(config, 0x00, sizeof(wifi_manager_config_t));
+	strncpy(config->ap_ssid, DEFAULT_AP_SSID, MAX_SSID_SIZE);
+	strncpy(config->ap_pwd, DEFAULT_AP_PASSWORD, MAX_PASSWORD_SIZE);
+	config->ap_channel = DEFAULT_AP_CHANNEL;
+	config->ap_ssid_hidden = DEFAULT_AP_SSID_HIDDEN;
+	config->ap_bandwidth = DEFAULT_AP_BANDWIDTH;
+	config->sta_only = DEFAULT_STA_ONLY;
+	config->sta_power_save = DEFAULT_STA_POWER_SAVE;
+	config->sta_static_ip = 0;
+
 	/* disable the default wifi logging */
 	esp_log_level_set("wifi", ESP_LOG_NONE);
 
 	/* initialize flash memory */
 	nvs_flash_init();
+
 	/* memory allocation */
 	wifi_manager_queue = xQueueCreate( 3, sizeof( queue_message) );
 	wifi_manager_json_mutex = xSemaphoreCreateMutex();
@@ -186,8 +185,9 @@ void wifi_manager_start(){
 	ip_info_json = (char*)malloc(sizeof(char) * JSON_IP_INFO_SIZE);
 	wifi_manager_clear_ip_info_json();
 	wifi_manager_config_sta = (wifi_config_t*)malloc(sizeof(wifi_config_t));
+	
 	memset(wifi_manager_config_sta, 0x00, sizeof(wifi_config_t));
-	memset(&wifi_settings.sta_static_ip_config, 0x00, sizeof(esp_netif_ip_info_t));
+	
 	cb_ptr_arr = malloc(sizeof(void (*)(void*)) * WM_MESSAGE_CODE_COUNT);
 	for(int i=0; i<WM_MESSAGE_CODE_COUNT; i++){
 		cb_ptr_arr[i] = NULL;
@@ -204,7 +204,7 @@ void wifi_manager_start(){
 	wifi_manager_shutdown_ap_timer = xTimerCreate( NULL, pdMS_TO_TICKS(WIFI_MANAGER_SHUTDOWN_AP_TIMER), pdFALSE, ( void * ) 0, wifi_manager_timer_shutdown_ap_cb);
 
 	/* start wifi manager task */
-	xTaskCreate(&wifi_manager, "wifi_manager", 4096, NULL, WIFI_MANAGER_TASK_PRIORITY, &task_wifi_manager);
+	xTaskCreate(&wifi_manager_task, "wifi_manager", 4096, config, WIFI_MANAGER_TASK_PRIORITY, &task_wifi_manager);
 }
 
 void wifi_manager_clear_ip_info_json(){
@@ -709,8 +709,8 @@ esp_netif_t* wifi_manager_get_esp_netif_sta(){
 	return esp_netif_sta;
 }
 
-void wifi_manager( void * pvParameters ){
-
+void wifi_manager_task( void * pvParameters ){
+	wifi_manager_config_t *config = (wifi_manager_config_t *)pvParameters;
 
 	queue_message msg;
 	BaseType_t xStatus;
@@ -743,22 +743,23 @@ void wifi_manager( void * pvParameters ){
 	wifi_config_t ap_config = {
 		.ap = {
 			.ssid_len = 0,
-			.channel = wifi_settings.ap_channel,
-			.ssid_hidden = wifi_settings.ap_ssid_hidden,
+			.channel = config->ap_channel,
+			.ssid_hidden = config->ap_ssid_hidden,
 			.max_connection = DEFAULT_AP_MAX_CONNECTIONS,
 			.beacon_interval = DEFAULT_AP_BEACON_INTERVAL,
 		},
 	};
-	memcpy(ap_config.ap.ssid, wifi_settings.ap_ssid , sizeof(wifi_settings.ap_ssid));
+	strncpy((char *)ap_config.ap.ssid, config->ap_ssid , MAX_SSID_SIZE);
 
 	/* if the password lenght is under 8 char which is the minium for WPA2, the access point starts as open */
-	if(strlen( (char*)wifi_settings.ap_pwd) < WPA2_MINIMUM_PASSWORD_LENGTH){
+	// FIXME: This should not fail open if password is non-empty but less than 8 chars
+	if(strlen( config->ap_pwd) < WPA2_MINIMUM_PASSWORD_LENGTH){
 		ap_config.ap.authmode = WIFI_AUTH_OPEN;
 		memset( ap_config.ap.password, 0x00, sizeof(ap_config.ap.password) );
 	}
 	else{
 		ap_config.ap.authmode = WIFI_AUTH_WPA2_PSK;
-		memcpy(ap_config.ap.password, wifi_settings.ap_pwd, sizeof(wifi_settings.ap_pwd));
+		strncpy((char *)ap_config.ap.password, config->ap_pwd, MAX_PASSWORD_SIZE);
 	}
 	
 
@@ -774,8 +775,8 @@ void wifi_manager( void * pvParameters ){
 
 	ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
 	ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, &ap_config));
-	ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_AP, wifi_settings.ap_bandwidth));
-	ESP_ERROR_CHECK(esp_wifi_set_ps(wifi_settings.sta_power_save));
+	ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_AP, config->ap_bandwidth));
+	ESP_ERROR_CHECK(esp_wifi_set_ps(config->sta_power_save));
 
 
 	/* by default the mode is STA because wifi_manager will not start the access point unless it has to! */

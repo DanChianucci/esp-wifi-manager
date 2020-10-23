@@ -244,9 +244,9 @@ typedef enum connection_request_made_by_code_t{
 /**
  * The actual WiFi settings in use
  */
-struct wifi_settings_t{
-	uint8_t ap_ssid[MAX_SSID_SIZE];
-	uint8_t ap_pwd[MAX_PASSWORD_SIZE];
+typedef struct {
+	char ap_ssid[MAX_SSID_SIZE];
+	char ap_pwd[MAX_PASSWORD_SIZE];
 	uint8_t ap_channel;
 	uint8_t ap_ssid_hidden;
 	wifi_bandwidth_t ap_bandwidth;
@@ -254,8 +254,7 @@ struct wifi_settings_t{
 	wifi_ps_type_t sta_power_save;
 	bool sta_static_ip;
 	esp_netif_ip_info_t sta_static_ip_config;
-};
-extern struct wifi_settings_t wifi_settings;
+} wifi_manager_config_t;
 
 
 /**
@@ -296,7 +295,7 @@ void filter_unique( wifi_ap_record_t * aplist, uint16_t * ap_num);
 /**
  * Main task for the wifi_manager
  */
-void wifi_manager( void * pvParameters );
+void wifi_manager_task( void * pvParameters );
 
 
 char* wifi_manager_get_ap_list_json();
