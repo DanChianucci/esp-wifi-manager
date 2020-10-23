@@ -165,9 +165,7 @@ void wifi_manager_start(){
 	strncpy(config->ap_pwd, DEFAULT_AP_PASSWORD, MAX_PASSWORD_SIZE);
 	config->ap_channel = DEFAULT_AP_CHANNEL;
 	config->ap_ssid_hidden = DEFAULT_AP_SSID_HIDDEN;
-	config->ap_bandwidth = DEFAULT_AP_BANDWIDTH;
 	config->sta_only = DEFAULT_STA_ONLY;
-	config->sta_power_save = DEFAULT_STA_POWER_SAVE;
 	config->sta_static_ip = 0;
 
 	/* disable the default wifi logging */
@@ -775,8 +773,7 @@ void wifi_manager_task( void * pvParameters ){
 
 	ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
 	ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, &ap_config));
-	ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_AP, config->ap_bandwidth));
-	ESP_ERROR_CHECK(esp_wifi_set_ps(config->sta_power_save));
+	ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20));
 
 
 	/* by default the mode is STA because wifi_manager will not start the access point unless it has to! */
