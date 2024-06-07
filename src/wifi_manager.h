@@ -110,16 +110,6 @@ extern "C" {
  */
 #define DEFAULT_AP_PASSWORD 				CONFIG_DEFAULT_AP_PASSWORD
 
-/** @brief Defines the hostname broadcasted by mDNS */
-#define DEFAULT_HOSTNAME					"esp32"
-
-/** @brief Defines access point's bandwidth.
- *  Value: WIFI_BW_HT20 for 20 MHz  or  WIFI_BW_HT40 for 40 MHz
- *  20 MHz minimize channel interference but is not suitable for
- *  applications with high data speeds
- */
-#define DEFAULT_AP_BANDWIDTH 					WIFI_BW_HT20
-
 /** @brief Defines access point's channel.
  *  Channel selection is only effective when not connected to another AP.
  *  Good practice for minimal channel interference to use
@@ -151,13 +141,6 @@ extern "C" {
  *  Turning off own AP when connected to another AP minimize channel interference and increase throughput
  */
 #define DEFAULT_STA_ONLY 					1
-
-/** @brief Defines if wifi power save shall be enabled.
- *  Value: WIFI_PS_NONE for full power (wifi modem always on)
- *  Value: WIFI_PS_MODEM for power save (wifi modem sleep periodically)
- *  Note: Power save is only effective when in STA only mode
- */
-#define DEFAULT_STA_POWER_SAVE 				WIFI_PS_NONE
 
 /**
  * @brief Defines the maximum length in bytes of a JSON representation of an access point.
@@ -244,18 +227,15 @@ typedef enum connection_request_made_by_code_t{
 /**
  * The actual WiFi settings in use
  */
-struct wifi_settings_t{
-	uint8_t ap_ssid[MAX_SSID_SIZE];
-	uint8_t ap_pwd[MAX_PASSWORD_SIZE];
+typedef struct {
+	char ap_ssid[MAX_SSID_SIZE];
+	char ap_pwd[MAX_PASSWORD_SIZE];
 	uint8_t ap_channel;
 	uint8_t ap_ssid_hidden;
-	wifi_bandwidth_t ap_bandwidth;
 	bool sta_only;
-	wifi_ps_type_t sta_power_save;
 	bool sta_static_ip;
 	esp_netif_ip_info_t sta_static_ip_config;
-};
-extern struct wifi_settings_t wifi_settings;
+} wifi_manager_config_t;
 
 
 /**
@@ -296,7 +276,7 @@ void filter_unique( wifi_ap_record_t * aplist, uint16_t * ap_num);
 /**
  * Main task for the wifi_manager
  */
-void wifi_manager( void * pvParameters );
+void wifi_manager_task( void * pvParameters );
 
 
 char* wifi_manager_get_ap_list_json();
@@ -305,17 +285,6 @@ char* wifi_manager_get_ip_info_json();
 
 void wifi_manager_scan_async();
 
-
-/**
- * @brief saves the current STA wifi config to flash ram storage.
- */
-esp_err_t wifi_manager_save_sta_config();
-
-/**
- * @brief fetch a previously STA wifi config in the flash ram storage.
- * @return true if a previously saved config was found, false otherwise.
- */
-bool wifi_manager_fetch_wifi_sta_config();
 
 wifi_config_t* wifi_manager_get_wifi_sta_config();
 
