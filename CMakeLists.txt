@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3)
 idf_component_register(
     SRC_DIRS src
     REQUIRES log nvs_flash mdns wpa_supplicant lwip esp_http_server esp_wifi
