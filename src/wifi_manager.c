@@ -53,9 +53,9 @@ Contains the freeRTOS task and all necessary support
 #include <lwip/err.h>
 #include <lwip/netdb.h>
 #include <lwip/ip4_addr.h>
+#include <cJSON.h>
 
 
-#include "json.h"
 #include "dns_server.h"
 #include "wifi_manager.h"
 
@@ -77,8 +77,8 @@ SemaphoreHandle_t wifi_manager_sta_ip_mutex = NULL;
 char *wifi_manager_sta_ip = NULL;
 uint16_t ap_num = MAX_AP_NUM;
 wifi_ap_record_t *accessp_records;
-char *accessp_json = NULL;
-char *ip_info_json = NULL;
+cJSON* accessp_json = NULL;
+cJSON* ip_info_json = NULL;
 wifi_config_t* wifi_manager_config_sta = NULL;
 
 /* @brief Array of callback function pointers */
@@ -178,14 +178,15 @@ void wifi_manager_start(){
 	wifi_manager_queue = xQueueCreate( 3, sizeof( queue_message) );
 	wifi_manager_json_mutex = xSemaphoreCreateMutex();
 	accessp_records = (wifi_ap_record_t*)malloc(sizeof(wifi_ap_record_t) * MAX_AP_NUM);
-	accessp_json = (char*)malloc(MAX_AP_NUM * JSON_ONE_APP_SIZE + 4); /* 4 bytes for json encapsulation of "[\n" and "]\0" */
+
+
 	wifi_manager_clear_access_points_json();
-	ip_info_json = (char*)malloc(sizeof(char) * JSON_IP_INFO_SIZE);
 	wifi_manager_clear_ip_info_json();
+
 	wifi_manager_config_sta = (wifi_config_t*)malloc(sizeof(wifi_config_t));
-	
+
 	memset(wifi_manager_config_sta, 0x00, sizeof(wifi_config_t));
-	
+
 	cb_ptr_arr = malloc(sizeof(void (*)(void*)) * WM_MESSAGE_CODE_COUNT);
 	for(int i=0; i<WM_MESSAGE_CODE_COUNT; i++){
 		cb_ptr_arr[i] = NULL;
@@ -206,25 +207,20 @@ void wifi_manager_start(){
 }
 
 void wifi_manager_clear_ip_info_json(){
-	strcpy(ip_info_json, "{}\n");
+	cJSON_Delete(ip_info_json);
+	ip_info_json = cJSON_CreateObject();
 }
 
 
 void wifi_manager_generate_ip_info_json(update_reason_code_t update_reason_code){
-
 	wifi_config_t *config = wifi_manager_get_wifi_sta_config();
+
+	wifi_manager_clear_ip_info_json();
+
 	if(config){
 
-		const char *ip_info_json_format = ",\"ip\":\"%s\",\"netmask\":\"%s\",\"gw\":\"%s\",\"urc\":%d}\n";
+		cJSON_AddStringToObject(ip_info_json, "ssid", (char*) config->sta.ssid);
 
-		memset(ip_info_json, 0x00, JSON_IP_INFO_SIZE);
-
-		/* to avoid declaring a new buffer we copy the data directly into the buffer at its correct address */
-		strcpy(ip_info_json, "{\"ssid\":");
-		json_print_string(config->sta.ssid,  (unsigned char*)(ip_info_json+strlen(ip_info_json)) );
-
-		size_t ip_info_json_len = strlen(ip_info_json);
-		size_t remaining = JSON_IP_INFO_SIZE - ip_info_json_len;
 		if(update_reason_code == UPDATE_CONNECTION_OK){
 			/* rest of the information is copied after the ssid */
 			esp_netif_ip_info_t ip_info;
@@ -238,20 +234,16 @@ void wifi_manager_generate_ip_info_json(update_reason_code_t update_reason_code)
 			esp_ip4addr_ntoa(&ip_info.gw, gw, IP4ADDR_STRLEN_MAX);
 			esp_ip4addr_ntoa(&ip_info.netmask, netmask, IP4ADDR_STRLEN_MAX);
 
-
-			snprintf( (ip_info_json + ip_info_json_len), remaining, ip_info_json_format,
-					ip,
-					netmask,
-					gw,
-					(int)update_reason_code);
+			cJSON_AddStringToObject(ip_info_json,"ip",ip);
+      cJSON_AddStringToObject(ip_info_json,"netmask",netmask);
+      cJSON_AddStringToObject(ip_info_json,"gw",gw);
+      cJSON_AddNumberToObject(ip_info_json,"urc",(int)update_reason_code);
 		}
 		else{
-			/* notify in the json output the reason code why this was updated without a connection */
-			snprintf( (ip_info_json + ip_info_json_len), remaining, ip_info_json_format,
-								"0",
-								"0",
-								"0",
-								(int)update_reason_code);
+			cJSON_AddStringToObject(ip_info_json,"ip","0");
+      cJSON_AddStringToObject(ip_info_json,"netmask","0");
+      cJSON_AddStringToObject(ip_info_json,"gw","0");
+      cJSON_AddNumberToObject(ip_info_json,"urc",(int)update_reason_code);
 		}
 	}
 	else{
@@ -263,34 +255,25 @@ void wifi_manager_generate_ip_info_json(update_reason_code_t update_reason_code)
 
 
 void wifi_manager_clear_access_points_json(){
-	strcpy(accessp_json, "[]\n");
+	cJSON_Delete(accessp_json);
+	accessp_json = cJSON_CreateArray();
 }
 void wifi_manager_generate_acess_points_json(){
 
-	strcpy(accessp_json, "[");
 
+	wifi_manager_clear_access_points_json();
 
-	const char oneap_str[] = ",\"chan\":%d,\"rssi\":%d,\"auth\":%d}%c\n";
-
-	/* stack buffer to hold on to one AP until it's copied over to accessp_json */
-	char one_ap[JSON_ONE_APP_SIZE];
 	for(int i=0; i<ap_num;i++){
 
 		wifi_ap_record_t ap = accessp_records[i];
+		cJSON * one_ap  = cJSON_CreateObject();
 
-		/* ssid needs to be json escaped. To save on heap memory it's directly printed at the correct address */
-		strcat(accessp_json, "{\"ssid\":");
-		json_print_string( (unsigned char*)ap.ssid,  (unsigned char*)(accessp_json+strlen(accessp_json)) );
+		cJSON_AddStringToObject(one_ap,"ssid", (char*) ap.ssid);
+		cJSON_AddNumberToObject(one_ap,"chan", ap.primary);
+		cJSON_AddNumberToObject(one_ap, "rssi", ap.rssi);
+		cJSON_AddNumberToObject(one_ap, "auth", ap.authmode);
 
-		/* print the rest of the json for this access point: no more string to escape */
-		snprintf(one_ap, (size_t)JSON_ONE_APP_SIZE, oneap_str,
-				ap.primary,
-				ap.rssi,
-				ap.authmode,
-				i==ap_num-1?']':',');
-
-		/* add it to the list */
-		strcat(accessp_json, one_ap);
+		cJSON_AddItemToArray(accessp_json, one_ap);
 	}
 
 }
@@ -357,7 +340,7 @@ void wifi_manager_unlock_json_buffer(){
 }
 
 char* wifi_manager_get_ap_list_json(){
-	return accessp_json;
+	return cJSON_Print(accessp_json);
 }
 
 
@@ -588,7 +571,7 @@ void wifi_manager_connect_async(){
 
 
 char* wifi_manager_get_ip_info_json(){
-	return ip_info_json;
+	return cJSON_Print(ip_info_json);
 }
 
 
@@ -641,7 +624,7 @@ void wifi_manager_filter_unique( wifi_ap_record_t * aplist, uint16_t * aps) {
 		/* remove the identical SSID+authmodes */
 		for(int j=i+1; j<*aps;j++) {
 			wifi_ap_record_t * ap1 = &aplist[j];
-			if ( (strcmp((const char *)ap->ssid, (const char *)ap1->ssid)==0) && 
+			if ( (strcmp((const char *)ap->ssid, (const char *)ap1->ssid)==0) &&
 			     (ap->authmode == ap1->authmode) ) { /* same SSID, different auth mode is skipped */
 				/* save the rssi for the display */
 				if ((ap1->rssi) > (ap->rssi)) ap->rssi=ap1->rssi;
@@ -759,7 +742,7 @@ void wifi_manager_task( void * pvParameters ){
 		ap_config.ap.authmode = WIFI_AUTH_WPA2_PSK;
 		strncpy((char *)ap_config.ap.password, config->ap_pwd, MAX_PASSWORD_SIZE);
 	}
-	
+
 
 	/* DHCP AP configuration */
 	esp_netif_dhcps_stop(esp_netif_ap); /* DHCP client/server must be stopped before setting new IP information. */
@@ -1074,7 +1057,7 @@ void wifi_manager_task( void * pvParameters ){
 
 			case WM_EVENT_STA_GOT_IP:
 				ESP_LOGI(TAG, "WM_EVENT_STA_GOT_IP");
-				ip_event_got_ip_t* ip_event_got_ip = (ip_event_got_ip_t*)msg.param; 
+				ip_event_got_ip_t* ip_event_got_ip = (ip_event_got_ip_t*)msg.param;
 				uxBits = xEventGroupGetBits(wifi_manager_event_group);
 
 				/* reset connection requests bits -- doesn't matter if it was set or not */
@@ -1153,5 +1136,3 @@ void wifi_manager_task( void * pvParameters ){
 	vTaskDelete( NULL );
 
 }
-
-
