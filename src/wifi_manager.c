@@ -40,7 +40,6 @@ Contains the freeRTOS task and all necessary support
 #include <freertos/task.h>
 #include <freertos/event_groups.h>
 #include <freertos/timers.h>
-#include <http_app.h>
 #include <esp_wifi.h>
 #include <esp_event.h>
 #include <esp_netif.h>
@@ -56,6 +55,7 @@ Contains the freeRTOS task and all necessary support
 #include <cJSON.h>
 
 
+#include "http_app.h"
 #include "dns_server.h"
 #include "wifi_manager.h"
 
@@ -75,7 +75,7 @@ TimerHandle_t wifi_manager_shutdown_ap_timer = NULL;
 SemaphoreHandle_t wifi_manager_json_mutex = NULL;
 SemaphoreHandle_t wifi_manager_sta_ip_mutex = NULL;
 char *wifi_manager_sta_ip = NULL;
-uint16_t ap_num = MAX_AP_NUM;
+uint16_t ap_scan_count = 0;
 wifi_ap_record_t *accessp_records;
 cJSON* accessp_json = NULL;
 cJSON* ip_info_json = NULL;
@@ -126,6 +126,27 @@ const int WIFI_MANAGER_REQUEST_DISCONNECT_BIT = BIT8;
 
 
 
+/**
+ * The actual WiFi settings in use
+ */
+wifi_manager_config_t wifi_manager_config = {
+	.ap_ssid                    = DEFAULT_AP_SSID,
+	.ap_pwd                     = DEFAULT_AP_PASSWORD,
+	.ap_channel                 = DEFAULT_AP_CHANNEL,
+	.ap_ssid_hidden             = DEFAULT_AP_SSID_HIDDEN,
+	.ap_max_connections         = DEFAULT_AP_MAX_CONNECTIONS,
+	.ap_ip                      = DEFAULT_AP_IP,
+	.ap_beacon_interval         = DEFAULT_AP_BEACON_INTERVAL,
+	.ap_shutdown_timer          = DEFAULT_AP_SHUTDOWN_TIMER,
+	.ap_max_scan_cnt            = DEFAULT_AP_MAX_SCAN_CNT,
+	.webapp_location            = DEFAULT_WEBAPP_LOCATION,
+	.connection_max_retry_cnt   = DEFAULT_CONNECTION_RETRY_CNT,
+	.connection_retry_timer     = DEFAULT_CONNECTION_RETRY_TIMER,
+	.task_priority              = DEFAULT_WIFI_MANAGER_TASK_PRIORITY
+};
+
+
+
 void wifi_manager_timer_retry_cb( TimerHandle_t xTimer ){
 
 	ESP_LOGI(TAG, "Retry Timer Tick! Sending ORDER_CONNECT_STA with reason CONNECTION_REQUEST_AUTO_RECONNECT");
@@ -158,16 +179,6 @@ void wifi_manager_disconnect_async(){
 
 void wifi_manager_start(){
 
-	// Configuration for this library
-	wifi_manager_config_t *config = (wifi_manager_config_t*)malloc(sizeof(wifi_manager_config_t));
-	memset(config, 0x00, sizeof(wifi_manager_config_t));
-	strncpy(config->ap_ssid, DEFAULT_AP_SSID, MAX_SSID_SIZE);
-	strncpy(config->ap_pwd, DEFAULT_AP_PASSWORD, MAX_PASSWORD_SIZE);
-	config->ap_channel = DEFAULT_AP_CHANNEL;
-	config->ap_ssid_hidden = DEFAULT_AP_SSID_HIDDEN;
-	config->sta_only = DEFAULT_STA_ONLY;
-	config->sta_static_ip = 0;
-
 	/* disable the default wifi logging */
 	esp_log_level_set("wifi", ESP_LOG_NONE);
 
@@ -177,7 +188,7 @@ void wifi_manager_start(){
 	/* memory allocation */
 	wifi_manager_queue = xQueueCreate( 3, sizeof( queue_message) );
 	wifi_manager_json_mutex = xSemaphoreCreateMutex();
-	accessp_records = (wifi_ap_record_t*)malloc(sizeof(wifi_ap_record_t) * MAX_AP_NUM);
+	accessp_records = (wifi_ap_record_t*)malloc(sizeof(wifi_ap_record_t) * wifi_manager_config.ap_max_scan_cnt);
 
 
 	wifi_manager_clear_access_points_json();
@@ -197,13 +208,13 @@ void wifi_manager_start(){
 	wifi_manager_event_group = xEventGroupCreate();
 
 	/* create timer for to keep track of retries */
-	wifi_manager_retry_timer = xTimerCreate( NULL, pdMS_TO_TICKS(WIFI_MANAGER_RETRY_TIMER), pdFALSE, ( void * ) 0, wifi_manager_timer_retry_cb);
+	wifi_manager_retry_timer = xTimerCreate( NULL, pdMS_TO_TICKS(wifi_manager_config.connection_retry_timer), pdFALSE, ( void * ) 0, wifi_manager_timer_retry_cb);
 
 	/* create timer for to keep track of AP shutdown */
-	wifi_manager_shutdown_ap_timer = xTimerCreate( NULL, pdMS_TO_TICKS(WIFI_MANAGER_SHUTDOWN_AP_TIMER), pdFALSE, ( void * ) 0, wifi_manager_timer_shutdown_ap_cb);
+	wifi_manager_shutdown_ap_timer = xTimerCreate( NULL, pdMS_TO_TICKS(wifi_manager_config.ap_shutdown_timer), pdFALSE, ( void * ) 0, wifi_manager_timer_shutdown_ap_cb);
 
 	/* start wifi manager task */
-	xTaskCreate(&wifi_manager_task, "wifi_manager", 4096, config, WIFI_MANAGER_TASK_PRIORITY, &task_wifi_manager);
+	xTaskCreate(&wifi_manager_task, "wifi_manager_task", 4096, NULL , wifi_manager_config.task_priority, &task_wifi_manager);
 }
 
 void wifi_manager_clear_ip_info_json(){
@@ -246,9 +257,6 @@ void wifi_manager_generate_ip_info_json(update_reason_code_t update_reason_code)
       cJSON_AddNumberToObject(ip_info_json,"urc",(int)update_reason_code);
 		}
 	}
-	else{
-		wifi_manager_clear_ip_info_json();
-	}
 
 
 }
@@ -258,12 +266,13 @@ void wifi_manager_clear_access_points_json(){
 	cJSON_Delete(accessp_json);
 	accessp_json = cJSON_CreateArray();
 }
+
 void wifi_manager_generate_acess_points_json(){
 
 
 	wifi_manager_clear_access_points_json();
 
-	for(int i=0; i<ap_num;i++){
+	for(int i=0; i<ap_scan_count;i++){
 
 		wifi_ap_record_t ap = accessp_records[i];
 		cJSON * one_ap  = cJSON_CreateObject();
@@ -294,6 +303,7 @@ bool wifi_manager_lock_sta_ip_string(TickType_t xTicksToWait){
 	}
 
 }
+
 void wifi_manager_unlock_sta_ip_string(){
 	xSemaphoreGive( wifi_manager_sta_ip_mutex );
 }
@@ -339,6 +349,7 @@ void wifi_manager_unlock_json_buffer(){
 	xSemaphoreGive( wifi_manager_json_mutex );
 }
 
+//Caller must free the returned pointer
 char* wifi_manager_get_ap_list_json(){
 	return cJSON_Print(accessp_json);
 }
@@ -369,7 +380,7 @@ static void wifi_manager_event_handler(void* arg, esp_event_base_t event_base, i
 			  It is a blocked scan.
 			  The scan is caused by esp_wifi_connect().
 			Upon receiving this event, the event task does nothing. The application event callback needs to call
-			esp_wifi_scan_get_ap_num() and esp_wifi_scan_get_ap_records() to fetch the scanned AP list and trigger
+			esp_wifi_scan_get_ap_scan_count() and esp_wifi_scan_get_ap_records() to fetch the scanned AP list and trigger
 			the Wi-Fi driver to free the internal memory which is allocated during the scan (do not forget to do this)!
 		 */
 		case WIFI_EVENT_SCAN_DONE:
@@ -569,7 +580,7 @@ void wifi_manager_connect_async(){
 	wifi_manager_send_message(WM_ORDER_CONNECT_STA, (void*)CONNECTION_REQUEST_USER);
 }
 
-
+//caller must free the returned pointer
 char* wifi_manager_get_ip_info_json(){
 	return cJSON_Print(ip_info_json);
 }
@@ -691,7 +702,6 @@ esp_netif_t* wifi_manager_get_esp_netif_sta(){
 }
 
 void wifi_manager_task( void * pvParameters ){
-	wifi_manager_config_t *config = (wifi_manager_config_t *)pvParameters;
 
 	queue_message msg;
 	BaseType_t xStatus;
@@ -723,24 +733,24 @@ void wifi_manager_task( void * pvParameters ){
 	/* SoftAP - Wifi Access Point configuration setup */
 	wifi_config_t ap_config = {
 		.ap = {
-			.ssid_len = 0,
-			.channel = config->ap_channel,
-			.ssid_hidden = config->ap_ssid_hidden,
-			.max_connection = DEFAULT_AP_MAX_CONNECTIONS,
-			.beacon_interval = DEFAULT_AP_BEACON_INTERVAL,
+			.ssid_len        = 0,
+			.channel         = wifi_manager_config.ap_channel,
+			.ssid_hidden     = wifi_manager_config.ap_ssid_hidden,
+			.max_connection  = wifi_manager_config.ap_max_connections,
+			.beacon_interval = wifi_manager_config.ap_beacon_interval,
 		},
 	};
-	strncpy((char *)ap_config.ap.ssid, config->ap_ssid , MAX_SSID_SIZE);
+	strncpy((char *)ap_config.ap.ssid, wifi_manager_config.ap_ssid , MAX_SSID_SIZE);
 
 	/* if the password lenght is under 8 char which is the minium for WPA2, the access point starts as open */
 	// FIXME: This should not fail open if password is non-empty but less than 8 chars
-	if(strlen( config->ap_pwd) < WPA2_MINIMUM_PASSWORD_LENGTH){
+	if(strlen( wifi_manager_config.ap_pwd) < WPA2_MINIMUM_PASSWORD_LENGTH){
 		ap_config.ap.authmode = WIFI_AUTH_OPEN;
 		memset( ap_config.ap.password, 0x00, sizeof(ap_config.ap.password) );
 	}
 	else{
 		ap_config.ap.authmode = WIFI_AUTH_WPA2_PSK;
-		strncpy((char *)ap_config.ap.password, config->ap_pwd, MAX_PASSWORD_SIZE);
+		strncpy((char *)ap_config.ap.password, wifi_manager_config.ap_pwd, MAX_PASSWORD_SIZE);
 	}
 
 
@@ -790,13 +800,13 @@ void wifi_manager_task( void * pvParameters ){
 				/* only check for AP if the scan is succesful */
 				if(evt_scan_done->status == 0){
 					/* As input param, it stores max AP number ap_records can hold. As output param, it receives the actual AP number this API returns.
-					* As a consequence, ap_num MUST be reset to MAX_AP_NUM at every scan */
-					ap_num = MAX_AP_NUM;
-					ESP_ERROR_CHECK(esp_wifi_scan_get_ap_records(&ap_num, accessp_records));
+					* As a consequence, ap_scan_count MUST be reset to MAX_AP_NUM at every scan */
+					ap_scan_count = wifi_manager_config.ap_max_scan_cnt;
+					ESP_ERROR_CHECK(esp_wifi_scan_get_ap_records(&ap_scan_count, accessp_records));
 					/* make sure the http server isn't trying to access the list while it gets refreshed */
 					if(wifi_manager_lock_json_buffer( pdMS_TO_TICKS(1000) )){
-						/* Will remove the duplicate SSIDs from the list and update ap_num */
-						wifi_manager_filter_unique(accessp_records, &ap_num);
+						/* Will remove the duplicate SSIDs from the list and update ap_scan_count */
+						wifi_manager_filter_unique(accessp_records, &ap_scan_count);
 						wifi_manager_generate_acess_points_json();
 						wifi_manager_unlock_json_buffer();
 					}
@@ -992,7 +1002,7 @@ void wifi_manager_task( void * pvParameters ){
 
 						/* if the nunber of retries is below the threshold to start the AP, a reconnection attempt is made
 						 * This way we avoid restarting the AP directly in case the connection is mementarily lost */
-						if(retries < WIFI_MANAGER_MAX_RETRY_START_AP){
+						if(retries < wifi_manager_config.connection_max_retry_cnt){
 							retries++;
 						}
 						else{
@@ -1094,7 +1104,7 @@ void wifi_manager_task( void * pvParameters ){
 				 * the AP is not even started to begin with.
 				 */
 				if(uxBits & WIFI_MANAGER_AP_STARTED_BIT){
-					TickType_t t = pdMS_TO_TICKS( WIFI_MANAGER_SHUTDOWN_AP_TIMER );
+					TickType_t t = pdMS_TO_TICKS( wifi_manager_config.ap_shutdown_timer );
 
 					/* if for whatever reason user configured the shutdown timer to be less than 1 tick, the AP is stopped straight away */
 					if(t > 0){

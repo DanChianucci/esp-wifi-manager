@@ -274,8 +274,11 @@ static esp_err_t http_server_get_handler(httpd_req_t *req){
 				httpd_resp_set_type(req, http_content_type_json);
 				httpd_resp_set_hdr(req, http_cache_control_hdr, http_cache_control_no_cache);
 				httpd_resp_set_hdr(req, http_pragma_hdr, http_pragma_no_cache);
+
 				char* ap_buf = wifi_manager_get_ap_list_json();
 				httpd_resp_send(req, ap_buf, strlen(ap_buf));
+				free(ap_buf);
+
 				wifi_manager_unlock_json_buffer();
 			}
 			else{
@@ -299,8 +302,8 @@ static esp_err_t http_server_get_handler(httpd_req_t *req){
 					httpd_resp_set_hdr(req, http_pragma_hdr, http_pragma_no_cache);
 					httpd_resp_send(req, buff, strlen(buff));
 					wifi_manager_unlock_json_buffer();
-				}
-				else{
+					free(buff);
+				} else{
 					httpd_resp_set_status(req, http_503_hdr);
 					httpd_resp_send(req, NULL, 0);
 				}
@@ -404,12 +407,12 @@ static char* http_app_generate_url(const char* page){
 
 	char* ret;
 
-	int root_len = strlen(WEBAPP_LOCATION);
+	int root_len = strlen(wifi_manager_config.webapp_location);
 	const size_t url_sz = sizeof(char) * ( (root_len+1) + ( strlen(page) + 1) );
 
 	ret = malloc(url_sz);
 	memset(ret, 0x00, url_sz);
-	strcpy(ret, WEBAPP_LOCATION);
+	strcpy(ret, wifi_manager_config.webapp_location);
 	ret = strcat(ret, page);
 
 	return ret;
@@ -430,7 +433,7 @@ void http_app_start(bool lru_purge_enable){
 
 		/* generate the URLs */
 		if(http_root_url == NULL){
-			int root_len = strlen(WEBAPP_LOCATION);
+			int root_len = strlen(wifi_manager_config.webapp_location);
 
 			/* all the pages */
 			const char page_js[] = "code.js";
@@ -443,7 +446,7 @@ void http_app_start(bool lru_purge_enable){
 			const size_t http_root_url_sz = sizeof(char) * (root_len+1);
 			http_root_url = malloc(http_root_url_sz);
 			memset(http_root_url, 0x00, http_root_url_sz);
-			strcpy(http_root_url, WEBAPP_LOCATION);
+			strcpy(http_root_url, wifi_manager_config.webapp_location);
 
 			/* redirect url */
 			size_t redirect_sz = 22 + root_len + 1; /* strlen(http://255.255.255.255) + strlen("/") + 1 for \0 */
@@ -451,10 +454,10 @@ void http_app_start(bool lru_purge_enable){
 			*http_redirect_url = '\0';
 
 			if(root_len == 1){
-				snprintf(http_redirect_url, redirect_sz, "http://%s", DEFAULT_AP_IP);
+				snprintf(http_redirect_url, redirect_sz, "http://%s", wifi_manager_config.ap_ip);
 			}
 			else{
-				snprintf(http_redirect_url, redirect_sz, "http://%s%s", DEFAULT_AP_IP, WEBAPP_LOCATION);
+				snprintf(http_redirect_url, redirect_sz, "http://%s%s", wifi_manager_config.ap_ip, wifi_manager_config.webapp_location);
 			}
 
 			/* generate the other pages URLs*/

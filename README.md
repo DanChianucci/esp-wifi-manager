@@ -1,3 +1,16 @@
+# Upgrades to TonyP/esp32-wifi-manager
+  - Updates to work with esp-idf 5.0
+  - Removal of bespoke nvs code
+  - Remove bespoke json code in favor of cJSON
+  - runtime configurable
+
+  TODO
+  - Improve Configuration webpage
+  - Add platformio compatability
+  - add esp8266 rtos compatability
+
+
+
 # What is esp32-wifi-manager?
 
 ### Build status [![Build Status](https://travis-ci.com/tonyp7/esp32-wifi-manager.svg?branch=master)](https://travis-ci.com/tonyp7/esp32-wifi-manager)
@@ -22,7 +35,7 @@
    - [Interacting with the http server](#interacting-with-the-http-server)
    - [Thread safety and access to NVS](#thread-safety-and-access-to-nvs)
  - [License](#license)
-   
+
 
 # Demo
 [![esp32-wifi-manager demo](http://img.youtube.com/vi/hxlZi15bym4/0.jpg)](http://www.youtube.com/watch?v=hxlZi15bym4)
@@ -45,7 +58,7 @@ There are breaking changes and new features in esp-idf 4.1 and 4.2 which makes e
 
 Clone the repository where you want it to be. If you are unfamiliar with Git, you can use Github Desktop on Windows:
 
-```bash 
+```bash
 git clone https://github.com/tonyp7/esp32-wifi-manager.git
 ```
 
@@ -210,7 +223,7 @@ esp32-wifi-manager accesses the non-volatile storage to store and loads its conf
 ```c
 nvs_handle handle;
 
-if(nvs_sync_lock( portMAX_DELAY )){  
+if(nvs_sync_lock( portMAX_DELAY )){
     if(nvs_open(wifi_manager_nvs_namespace, NVS_READWRITE, &handle) == ESP_OK){
         /* do something with NVS */
 	nvs_close(handle);

@@ -53,35 +53,6 @@ extern "C" {
 #define MAX_PASSWORD_SIZE					64
 
 
-/**
- * @brief Defines the maximum number of access points that can be scanned.
- *
- * To save memory and avoid nasty out of memory errors,
- * we can limit the number of APs detected in a wifi scan.
- */
-#define MAX_AP_NUM 							15
-
-
-/**
- * @brief Defines the maximum number of failed retries allowed before the WiFi manager starts its own access point.
- * Setting it to 2 for instance means there will be 3 attempts in total (original request + 2 retries)
- */
-#define WIFI_MANAGER_MAX_RETRY_START_AP		CONFIG_WIFI_MANAGER_MAX_RETRY_START_AP
-
-/**
- * @brief Time (in ms) between each retry attempt
- * Defines the time to wait before an attempt to re-connect to a saved wifi is made after connection is lost or another unsuccesful attempt is made.
- */
-#define WIFI_MANAGER_RETRY_TIMER			CONFIG_WIFI_MANAGER_RETRY_TIMER
-
-
-/**
- * @brief Time (in ms) to wait before shutting down the AP
- * Defines the time (in ms) to wait after a succesful connection before shutting down the access point.
- */
-#define WIFI_MANAGER_SHUTDOWN_AP_TIMER		CONFIG_WIFI_MANAGER_SHUTDOWN_AP_TIMER
-
-
 /** @brief Defines the task priority of the wifi_manager.
  *
  * Tasks spawn by the manager will have a priority of WIFI_MANAGER_TASK_PRIORITY-1.
@@ -89,14 +60,46 @@ extern "C" {
  * it to 1 though as the sub-tasks will now have a priority of 0 which is the priority
  * of freeRTOS' idle task.
  */
-#define WIFI_MANAGER_TASK_PRIORITY			CONFIG_WIFI_MANAGER_TASK_PRIORITY
+#define DEFAULT_WIFI_MANAGER_TASK_PRIORITY			CONFIG_WIFI_MANAGER_TASK_PRIORITY
 
-/** @brief Defines the auth mode as an access point
- *  Value must be of type wifi_auth_mode_t
- *  @see esp_wifi_types.h
- *  @warning if set to WIFI_AUTH_OPEN, passowrd me be empty. See DEFAULT_AP_PASSWORD.
+
+/**
+ * @brief Defines the maximum number of failed retries allowed before the WiFi manager starts its own access point.
+ * Setting it to 2 for instance means there will be 3 attempts in total (original request + 2 retries)
  */
-#define AP_AUTHMODE 						WIFI_AUTH_WPA2_PSK
+#define DEFAULT_CONNECTION_RETRY_CNT		CONFIG_WIFI_MANAGER_MAX_RETRY_START_AP
+
+/**
+ * @brief Time (in ms) between each retry attempt
+ * Defines the time to wait before an attempt to re-connect to a saved wifi is made after connection is lost or another unsuccesful attempt is made.
+ */
+#define DEFAULT_CONNECTION_RETRY_TIMER			CONFIG_WIFI_MANAGER_RETRY_TIMER
+
+
+
+
+
+/** @brief Defines the URL where the wifi manager is located
+ *  By default it is at the server root (ie "/"). If you wish to add your own webpages
+ *  you may want to relocate the wifi manager to another URL, for instance /wifimanager
+ */
+#define DEFAULT_WEBAPP_LOCATION				CONFIG_WEBAPP_LOCATION
+
+
+
+/**
+ * @brief Defines the maximum number of access points that can be scanned.
+ *
+ * To save memory and avoid nasty out of memory errors,
+ * we can limit the number of APs detected in a wifi scan.
+ */
+#define DEFAULT_AP_MAX_SCAN_CNT 							15
+
+/**
+ * @brief Time (in ms) to wait before shutting down the AP
+ * Defines the time (in ms) to wait after a succesful connection before shutting down the access point.
+ */
+#define DEFAULT_AP_SHUTDOWN_TIMER		CONFIG_WIFI_MANAGER_SHUTDOWN_AP_TIMER
 
 /** @brief Defines visibility of the access point. 0: visible AP. 1: hidden */
 #define DEFAULT_AP_SSID_HIDDEN 				0
@@ -134,13 +137,6 @@ extern "C" {
 
 /** @brief Defines access point's beacon interval. 100ms is the recommended default. */
 #define DEFAULT_AP_BEACON_INTERVAL 			CONFIG_DEFAULT_AP_BEACON_INTERVAL
-
-/** @brief Defines if esp32 shall run both AP + STA when connected to another AP.
- *  Value: 0 will have the own AP always on (APSTA mode)
- *  Value: 1 will turn off own AP when connected to another AP (STA only mode when connected)
- *  Turning off own AP when connected to another AP minimize channel interference and increase throughput
- */
-#define DEFAULT_STA_ONLY 					1
 
 /**
  * @brief Defines the maximum length in bytes of a JSON representation of an access point.
@@ -228,14 +224,22 @@ typedef enum connection_request_made_by_code_t{
  * The actual WiFi settings in use
  */
 typedef struct {
-	char ap_ssid[MAX_SSID_SIZE];
-	char ap_pwd[MAX_PASSWORD_SIZE];
+	char* ap_ssid;
+	char* ap_pwd;
+	char* ap_ip;
+	char* webapp_location;
 	uint8_t ap_channel;
 	uint8_t ap_ssid_hidden;
-	bool sta_only;
-	bool sta_static_ip;
-	esp_netif_ip_info_t sta_static_ip_config;
+	uint8_t ap_max_scan_cnt;
+	uint8_t ap_max_connections;
+	uint8_t ap_beacon_interval;
+
+	uint8_t task_priority;
+	uint8_t connection_max_retry_cnt;
+	uint32_t connection_retry_timer;
+	uint32_t ap_shutdown_timer;
 } wifi_manager_config_t;
+extern wifi_manager_config_t wifi_manager_config;
 
 
 /**

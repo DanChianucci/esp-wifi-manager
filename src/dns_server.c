@@ -58,7 +58,7 @@ int socket_fd;
 
 void dns_server_start() {
 	if(task_dns_server == NULL){
-		xTaskCreate(&dns_server, "dns_server", 3072, NULL, WIFI_MANAGER_TASK_PRIORITY-1, &task_dns_server);
+		xTaskCreate(&dns_server, "dns_server", 3072, NULL, wifi_manager_config.task_priority-1, &task_dns_server);
 	}
 }
 
@@ -81,7 +81,7 @@ void dns_server(void *pvParameters) {
 
     /* Set redirection DNS hijack to the access point IP */
     ip4_addr_t ip_resolved;
-    inet_pton(AF_INET, DEFAULT_AP_IP, &ip_resolved);
+    inet_pton(AF_INET, wifi_manager_config.ap_ip , &ip_resolved);
 
 
     /* Create UDP socket */
@@ -177,7 +177,3 @@ void dns_server(void *pvParameters) {
 
     vTaskDelete ( NULL );
 }
-
-
-
-
