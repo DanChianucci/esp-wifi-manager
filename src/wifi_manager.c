@@ -179,9 +179,6 @@ void wifi_manager_disconnect_async(){
 
 void wifi_manager_start(){
 
-	/* disable the default wifi logging */
-	esp_log_level_set("wifi", ESP_LOG_NONE);
-
 	/* initialize flash memory */
 	nvs_flash_init();
 
@@ -286,8 +283,6 @@ void wifi_manager_generate_acess_points_json(){
 	}
 
 }
-
-
 
 bool wifi_manager_lock_sta_ip_string(TickType_t xTicksToWait){
 	if(wifi_manager_sta_ip_mutex){
